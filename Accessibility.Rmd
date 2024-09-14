@@ -1,0 +1,1762 @@
+---
+title: "Coursework submission for Transport Data Science (TRAN5340M)"
+subtitle: 'Equitable Access to Urban Healthcare: Assessing the Effect of Public Transport
+  on Medical Service Accessibility in Leeds'
+output: pdf_document
+always_allow_html: true
+---
+
+# Statement {.unnumbered}
+
+```         
+TRAN5340M
+Transport Data Science
+Assignment Title: Leeds Hospital Accessibility
+Student ID: 201802948
+Word Count: 2990    
+Lecturer: Dr Robin Lovelace
+Submission Date: 24/05/2024     
+Semester: 2
+Academic Year: 202324
+```
+
+```{r, include=FALSE}
+# Dataset for this project available on my github account: https://github.com/aseemTRANS/Transportation_UDSA
+```
+
+
+# Research Question
+
+What is the relationship between socio-economic, demographic determinants and the accessibility of essential healthcare services in Leeds and how can public transportation be modified to enhance accessibility for vulnerable populations?
+
+# Objectives
+
+-   Analyse the relationship between journey times and population distribution by using a travel time matrix to assess the travel times to Leeds Central Railway Station.
+-   Assess the accessibility of Leeds's parks, schools, supermarkets, and hospitals using hex grid by walk and transit.
+-   Examine how socioeconomic variables, including age, the number of children, and the status of disabilities, affect accessibility to hospital by using accessibility analysis. In particular, note any negative connections that would suggest restricted access for vulnerable populations.
+-   By Geographic Weighted Regression (GWR), measure the regional differences in the influence of socioeconomic and demographic factors on healthcare accessibility.
+-   To statistically validate the degree of accessibility inequality among the elderly, the disabled, and households with children, calculate the Gini coefficients.
+-   To help visualise spatial disparities, use the Getis-Ord Gi\* statistic to spatially locate places with significantly high or low accessibility to healthcare services.
+-   Modified GTFS data to simulate improved bus service frequency and evaluate the possible changes in healthcare access coverage.
+
+# Introduction
+
+Equitable access to healthcare services is still a major issue in modern metropolitan settings, especially for vulnerable populations including the elderly, those with disabilities, and families with small children. This study examines differences in hospital service accessibility with a focus on Leeds, a major UK metropolis. Previous studies have demonstrated the widespread impact of socioeconomic determinants on healthcare accessibility; nevertheless, there are still gaps in knowledge on the precise role that urban transit networks play in this regard. This initiative evaluates the impact of route configuration and transit frequency on hospital access. The study's premise is that public transport upgrades can increase healthcare accessibility, hence resolving a significant urban planning and public health concern.
+
+This study's main objective is to measure the correlation between hospital accessibility and public transport options in Leeds. To analyse geographical inequality, Gini coefficients and Getis-Ord Gi* are utilized. This method seeks to both identify places with inadequate access and simulate the possible effects of changing transit policy on enhancing accessibility. The study goes into additional detail on how public transportation frequency affects healthcare accessibility, providing important new information about how changes to bus timetables could have a big influence on accessibility. The results of this study are expected to make a substantial contribution to the domains of public health and urban planning by offering evidence-based suggestions for changes to transit policies.
+
+This study is organised as followed by an introduction to the methodology and data sources; an analysis of Leeds's hospital accessibility situation as of right now; the outcomes of the statistical models; and a discussion of the consequences of the findings. Every component builds on the one before it, and the end result is a set of conclusions and recommendations for policy based on the research findings.
+
+# Dataset
+
+For the purpose of this urban accessibility study, data was carefully selected from multiple sources to ensure an accurate spatial and socioeconomic analysis. The core data used for the r5r package came from Geofabrik OSM network ('bbbike_Leeds.osm.pbf') , UK GTFS data in zip file ('itm_yorkshire_gtfs.zip'), and the elevation data (elevation.tif) from elevatr package using opentopo api key, respectively. 
+
+To analyse the study area equitably, hexagonal grid cells measuring reslution 8 each were created. For the purpose of correctly reflecting density patterns, population data that was incorporated into these cells was sourced from the Global Human Settlement Layer.
+
+OSM data was used to create single points of interest file such as parks, schools, supermarkets, and hospitals. The UK Census was used to incorporate more socioeconomic and demographic data, including job statistics, travel patterns, ethnicity, and age demographics. The Access to Healthy Assets and Hazards (AHAH) dataset provided vital layers including the health domain and green space ratings, along with health-related indices and environmental data. Using the Leeds shapefile provided by UK geoportal, this heterogeneous information was brought together within a spatial framework to enable a detailed investigation of accessibility across a range of urban amenities.
+
+```{r, include=FALSE}
+# Data Source
+
+# GTFS: https://gtfs.pro/en/uk/Department-for-Transport-UK/yorkshire-dft
+# Socio-economic and Demographic: https://www.ons.gov.uk/census
+# Centroid: https://geoportal.statistics.gov.uk/datasets/b9b2b2440af240ce9d30a1d39a7507c2_0/explore
+# Population: https://human-settlement.emergency.copernicus.eu/dataToolsOverview.php
+```
+
+# Data Wrangling
+
+A grid or census blocks could be used for our accessibility analysis. Grids are beneficial for the maps' visual appeal. The Global Human Settlement Layer is a source of 1 km resolution population grid data for the entire world. The H3 hex-mapping library was used in this study because it is generates high-quality maps and we incorporates population data in the grid. Later in notebook, demographic and socieconomic data incorporating from the UK Census and the Leeds LSOA shapefile were carefully combined, which used for estimating accessibility at lsoa scale.
+
+To download OSM layers for all opportunities, QGIS plugin Quick OSM used. In this study, schools, parks, shops, and hospitals are examined. The r5r function requires location files including the following columns: id, lon, lat, opportunity name, and for this reason we create single csv file where lon and lat reflect the WGS84 coordinates and opportunity column contains a numerical representation of the trip destination opportunity. The opportunity is simply represented as a 1 (present) or a 0 (not present) in point of interest csv file.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set( warning = FALSE, 
+                       message = FALSE,
+                      echo = FALSE
+)
+```
+
+```{r}
+## Intsalling All Necessary Packages
+```
+
+```{r}
+# install.packages("devtools")
+
+# dev version on github
+# devtools::install_github("ipeaGIT/r5r", subdir = "r-package")
+```
+
+```{r, include=FALSE}
+
+# install.packages("osmextract")
+# install.packages("sf")
+# install.packages("ggplot2")
+# install.packages("patchwork")
+# install.packages("tmap")
+# install.packages("tidytransit")
+# install.packages("elevatr") 
+# install.packages("sp") 
+# install.packages("raster") 
+# install.packages("osmdata") 
+# install.packages("dplyr")
+# install.packages("tidyr")
+# install.packages("lubridate")
+# install.packages("tidyverse") 
+# install.packages("spgwr")
+# install.packages("corrplot")
+# install.packages("ineq")
+# install.packages("spdep")
+# install.packages("r5r")
+# install.packages("data.table")
+# install.packages("rJava")
+```
+
+
+```{r, include=FALSE}
+cat(processx::run("java", args = "-version")$stderr)
+```
+
+```{r, include=FALSE}
+options(java.parameters = "-Xmx6G")
+```
+
+```{r}
+# library(osmextract)
+library(sf)
+library(ggplot2)
+library(patchwork)
+library(tmap)
+library(tidytransit)
+# library(elevatr)
+# library(sp)
+# library(raster)
+# library(osmdata)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+# library(tidyverse)
+library(spgwr)
+library(corrplot)
+library(ineq)
+library(spdep)
+library(r5r)
+library(data.table)
+library(rJava)
+```
+
+```{r}
+## Please note down all the process related to creating dataset for R5R package and OSM data is commented out and generated data is directly used for analysis. Hex grid data and uk census data is generated in python file.
+```
+
+```{r}
+## OSM Network Data for r5r Package
+
+# # Set the download directory
+# download_dir = "directory"
+# 
+# # Download OSM data for Leeds, specifying the download directory
+# leeds_osm = oe_get("Leeds", download_directory = download_dir, provider = "geofabrik")
+```
+
+```{r}
+## GTFS Data for r5r Package
+
+# GTFS data https://gtfs.pro/en/uk/Department-for-Transport-UK/yorkshire-dft
+```
+
+```{r}
+## Elevation Data for r5r Package
+
+# elevatr::set_opentopo_key("435555bc5e4692f78897dc90f4f5b2e2")
+
+# leeds_shape = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Other Data/Shapefiles/Leeds.shp")
+
+# Download elevation data for Leeds
+# leeds_elevation = get_elev_raster(locations = leeds_shape, src = "gl1")
+
+# # Set the directory path where you want to save the elevation data
+# save_path = "Data/leeds_elevation.tif"
+# 
+# # Save the elevation data as a GeoTIFF file
+# writeRaster(leeds_elevation, filename = save_path, format = "GTiff")
+```
+
+```{r}
+## Generating Single csv file for Point of Interest
+
+
+# convert_shp_to_wgs84 <- function(input_path, output_path) {
+#   # Read the shapefile 
+#   shp_bng <- st_read(input_path)
+#   
+#   # Transform the CRS to WGS84
+#   shp_wgs84 <- st_transform(shp_bng, 4326)
+#   
+#   # Save the transformed shapefile
+#   st_write(shp_wgs84, output_path)
+#   
+#   cat("Converted and saved:", output_path, "\n")
+# }
+
+# # Supermarkets
+# convert_shp_to_wgs84("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/supermarket.shp", "/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/supermarket.shp")
+# 
+# # Parks
+# convert_shp_to_wgs84("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/parks.shp", "/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/parks.shp")
+# 
+# # Hospitals
+# convert_shp_to_wgs84("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/hospitals.shp", "/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/hospitals.shp")
+# 
+# # Schools
+# convert_shp_to_wgs84("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/schools.shp", "/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/schools.shp")
+
+# supermarkets = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/supermarket.shp")
+# parks = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/parks.shp")
+# schools = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/schools.shp")
+# hospitals = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/hospitals.shp")
+
+# hospitals_df = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/hospitals.shp") %>%
+#   st_set_geometry(NULL) %>%
+#   mutate(hospital = 1, school = 0, park = 0, supermarket = 0) %>%
+#   rename(amenity_name = amenity) %>%
+#   mutate(unique_id = row_number()) %>%
+#   select(unique_id, osm_id, amenity_name, lat, long, hospital, school, park, supermarket)
+
+# last_id = max(hospitals_df$unique_id)
+# schools_df = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/schools.shp") %>%
+#   st_set_geometry(NULL) %>%
+#   mutate(hospital = 0, school = 1, park = 0, supermarket = 0) %>%
+#   rename(amenity_name = amenity) %>%
+#   mutate(unique_id = last_id + row_number()) %>%
+#   select(unique_id, osm_id, amenity_name, lat, long, hospital, school, park, supermarket)
+
+# last_id = max(schools_df$unique_id)
+# parks_df = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/parks.shp") %>%
+#   st_set_geometry(NULL) %>%
+#   mutate(hospital = 0, school = 0, park = 1, supermarket = 0) %>%
+#   rename(amenity_name = amenity) %>%
+#   mutate(unique_id = last_id + row_number()) %>%
+#   select(unique_id, osm_id, amenity_name, lat, long, hospital, school, park, supermarket)
+
+# last_id = max(parks_df$unique_id)
+# supermarket_df = st_read("/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/supermarket.shp") %>%
+#   st_set_geometry(NULL) %>%
+#   mutate(hospital = 0, school = 0, park = 0, supermarket = 1) %>%
+#   rename(amenity_name = amenity) %>%
+#   mutate(unique_id = last_id + row_number()) %>%
+#   select(unique_id, osm_id, amenity_name, lat, long, hospital, school, park, supermarket)
+
+# all_amenities = bind_rows(hospitals_df, schools_df, parks_df, supermarket_df)
+```
+
+```{r}
+# all_amenities_aggregated = all_amenities %>%
+#   group_by(unique_id, osm_id, lat, long) %>%
+#   summarize(across(c(hospital, school, park, supermarket), sum), .groups = "drop")
+```
+
+```{r}
+# all_amenities_aggregated = all_amenities_aggregated %>%
+#   mutate(amenity_name = case_when(
+#     hospital == 1 ~ "hospital",
+#     school == 1 ~ "school",
+#     park == 1 ~ "park",
+#     supermarket == 1 ~ "supermarket",
+#     TRUE ~ NA_character_
+#   ))
+```
+
+```{r}
+# write.csv(all_amenities_aggregated, "/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Urban Accessibility/Data/WGS84/all_amenities_final.csv", row.names = FALSE)
+```
+
+# Analysis Parameter
+
+The allotted walking time was restricted to thirty minutes, in accordance with urban planning guidelines that consider thirty minutes to be a suitable walking time to utilise public transportation. The two-hour maximum trip duration was chosen to accommodate lengthy trips throughout the city, including any delays.The analysis was scheduled for 8:00 AM on a normal Monday in order to focused on rush hour, which is the busiest time for transit systems and best reflects the problems faced by commuters on a regular basis.
+
+```{r}
+# Opening the dataset and running r5r package
+```
+
+```{r}
+# Initiate the R5 core
+r5r_core = setup_r5(data_path = "r5r", verbose = FALSE)
+```
+
+```{r, include=FALSE}
+# Load the study area shapefile
+leeds_sf = st_read("Study Area/leeds_21.shp")
+```
+
+```{r, include=FALSE}
+leeds_analysis = st_read("Study Area/leeds_health_demograhic.shp")
+```
+
+```{r, include=FALSE}
+# changing the direction to make 1 is most deprived 
+leeds_analysis$Income.Dec = 11 - leeds_analysis$Income.Dec
+```
+
+```{r, include=FALSE}
+colnames(leeds_analysis)
+```
+
+```{r, include=FALSE}
+# Rename columns while preserving sf attributes
+leeds_analysis = leeds_analysis %>%
+  st_set_geometry(NULL) %>%
+  rename(
+    No_children = Number.of,#number of children
+    no_emp = total.no.o, #number of employment
+    emp_omt = total.no_1, #number of employmenet with other mode of transport
+    Asian_black = Asian_blac,
+    pvt_t = total.no_2,#number of employmenet with other private mode of transport
+    old_age = number_old,
+  ) %>%
+  st_set_geometry(leeds_analysis$geometry)
+```
+
+```{r, include=FALSE}
+colnames(leeds_analysis) 
+```
+
+```{r, include=FALSE}
+centroids = st_read("Centroids/cent_21.shp")
+```
+
+```{r, include=FALSE}
+central_station = read.csv("Facilities/central_station.csv")
+```
+
+```{r, include=FALSE}
+# open hex grid
+hex_grid = read.csv("Hex Grid/pop_hexgrid.csv")
+```
+
+```{r, include=FALSE}
+# Convert the CSV to an sf object using the polygon geometries in 'geometry'
+hex_grid = st_as_sf(hex_grid, wkt = "geometry", crs = 4326)
+```
+
+```{r, include=FALSE}
+# Convert the centroid_wkt character strings to a geometry column (centroid_geom)
+hex_grid$centroid_geom = st_as_sfc(hex_grid$centroid_wkt, crs = 4326)
+```
+
+```{r, include=FALSE}
+# Convert to spatial data frames
+central_station_sf = st_as_sf(central_station, coords = c("lon", "lat"), crs = 4326)
+```
+
+```{r, include=FALSE}
+highway = st_read("Facilities/WGS84/highway.shp")
+```
+
+## General Overview: Public Transit and Income Deprivation
+
+The bar graph shows an interesting trend where the greatest and lowest incomes are less likely to drive private vehicles, which may be due to their preferences for other modes of transportation. This pattern indicates that the use of public transportation is important when making mobility decisions. 
+
+```{r fig.cap="Employment by Other Mode of Transit Across Income Deciles"}
+# 'emp_omt' is the variable for employment by other mode of transit
+ggplot(leeds_analysis, aes(x = factor(Income.Dec), y = emp_omt, fill = factor(Income.Dec))) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.5) +
+  labs(x = "Income Decile", y = "Number of Employed via Other Mode Transit", 
+       title = "Employment by Other Mode of Transit Across Income Deciles") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Paired", name = "Income Decile") +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))  # Reduce the plot margins
+```
+
+# Visualisation
+
+## Travel Times to Leeds Central Railway Station
+
+Travel_time_matrix considers the mode of transportation, the departure time, and additional user-specified parameters to determine the quickest path from each origin to every potential destination. R5R takes into account door-to-door travel times for this.
+
+Located in the centre of Leeds, Leeds Central Railway Station is a major hub for transit in the city. Travel times to other parts of the city from this central point vary, according to the hex grid analysis. Places that are near the city centre and have easy access to main highways have quicker travel times usually less than 30 minutes. On the other hand, travel times to remote locations with poor access to main highways are typically greater than or equal to sixty or ninety minutes. Accessibility issues could affect people's ability to access services, jobs, and social activities in certain areas.
+
+This study found that only around 11% population can reach Leeds central railway station within 30 minutes and weighted average time is 47 minute.
+
+```{r}
+mode = c("WALK", "TRANSIT")
+max_walk_time = 30 # in minutes
+max_trip_duration = 120 # in minutes
+departure_datetime = as.POSIXct("12-04-2024 08:00:00", format = "%d-%m-%Y %H:%M:%S")
+time_window = 30 # in minutes
+percentiles = 50
+```
+
+```{r}
+ttm = travel_time_matrix(r5r_core,
+                          origins = st_set_geometry(hex_grid, hex_grid$centroid_geom),
+                          destinations = central_station,
+                          mode = mode,
+                          departure_datetime = departure_datetime,
+                          max_walk_time = max_walk_time,
+                          max_trip_duration = max_trip_duration,
+                          time_window = time_window,
+                          percentiles = percentiles,
+                          progress = TRUE)
+```
+
+```{r}
+# Ensure IDs are in the correct format for matching
+hex_grid$id = as.character(hex_grid$id)
+ttm$from_id = as.character(ttm$from_id)
+```
+
+```{r}
+# Set the polygon geometry as active for visualization
+st_geometry(hex_grid) = hex_grid$geometry
+```
+
+```{r}
+# Join the data and create a new dataframe for further analysis
+analysis_df = hex_grid %>%
+  left_join(ttm, by = c("id" = "from_id"))
+```
+
+```{r}
+# convert back to an sf object
+analysis_sf = st_as_sf(analysis_df, coords = c("lon", "lat"), crs = st_crs(hex_grid))
+```
+
+```{r}
+# Calculate the total population that can reach within 30 minutes
+population_reachable_within_30 = sum(analysis_sf$population[analysis_sf$travel_time_p50 <= 30], na.rm = TRUE)
+```
+
+```{r}
+# Calculate the total population
+total_population = sum(analysis_sf$population, na.rm = TRUE)
+```
+
+```{r, include=FALSE}
+# Calculate the percentage
+percentage_within_30 = (population_reachable_within_30 / total_population) * 100
+percentage_within_30
+```
+
+```{r, include=FALSE}
+# Calculate weighted average travel time
+weighted_average_travel_time = sum(analysis_sf$travel_time_p50 * analysis_sf$population, na.rm = TRUE) / sum(analysis_sf$population, na.rm = TRUE)
+weighted_average_travel_time
+```
+
+```{r, include=FALSE}
+# Calculate interquartile range
+IQR_travel_time = IQR(analysis_sf$travel_time_p50, na.rm = TRUE)
+IQR_travel_time
+```
+
+```{r}
+# Filter out rows where either population or travel_time_p50 is NA
+pop_time = analysis_sf[!is.na(analysis_sf$travel_time_p50) & !is.na(analysis_sf$population), ]
+```
+
+```{r combined-plots, fig.cap="Visualization of Travel Time and Population Correlation", fig.show='hold', out.width='50%'}
+
+plot_1 = ggplot(data = analysis_sf) +
+  geom_sf(aes(fill = travel_time_p50), show.legend = TRUE) +  # Visualize travel time
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Travel Time (minutes)") +
+  labs(title = "Travel Time to Leeds Central Railway Station",
+       subtitle = "Central station and highways included") +
+  theme_minimal() +
+  geom_sf(data = central_station_sf, color = "red", size = 3, shape = 21, fill = "green", show.legend = TRUE) +
+  geom_sf(data = highway, color = "black", size = 1, show.legend = TRUE) +
+  labs(fill = "Travel Time (minutes)", color = "Map Features") +
+  guides(fill = guide_legend(title = "Travel Time (minutes)"), 
+         color = guide_legend(title = "Map Features"))
+
+print(plot_1)
+
+# Create the plot
+plot_2 = ggplot(pop_time, aes(x = travel_time_p50, y = population)) +
+  geom_point(color = "blue", alpha = 0.5) +  
+  geom_smooth(method = "loess", se = FALSE, color = "red") +  
+  labs(title = "Population vs Travel Time to Leeds Central Station",
+       x = "Travel Time to Leeds Central Station (minutes)",
+       y = "Population") +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(min(pop_time$travel_time_p50, na.rm = TRUE), 
+                                  max(pop_time$travel_time_p50, na.rm = TRUE), by = 10)) +
+  scale_y_continuous(labels = scales::comma)
+
+print(plot_2)
+```
+
+## Accessibility To Essential Services
+
+Significant disparities in access to basic amenities including parks, schools, healthcare, and supermarkets are found in Leeds City's transport and accessibility analysis. These differences are location- and transit-specific. The information indicates that although schools are widely dispersed around the city, insufficient or badly maintained pedestrian routes and inadequate public transit schedules hinder actual accessibility, especially for those who live outside of a 30-minute travel window. Concerns are raised regarding equitable access to education for all residents.
+
+In addition, residents in distant areas may have to spend more money and time travelling due to the concentration of parks and supermarkets close to the city centre. Children and the elderly are most impacted by these spatial inequalities, as they require convenient access to green places for their health and well-being.
+
+The analysis's time threshold has a substantial impact on hospital accessibility. The service availability drastically decreases within a 30-minute range, however certain places are well covered within a 60-minute travel window. This suggests significant gaps in access to healthcare, which may affect many people's ability to receive normal medical treatment as well as emergency services.
+
+Based on these results, it is evident that Leeds City has difficulties ensuring equitable access to essential services and facilities, which are mostly determined by the effectiveness of the city's public transport system and urban design initiatives. Resolving these disparities is essential to improving the standard of living and health of all residents, indicating that the city's urban development and transport policies require a thorough evaluation and planned improvement.
+
+
+```{r, include=FALSE}
+#open the point of interest file which have location of schools, parks, supermarkets and hospital
+
+poi = read.csv("POI/points_of_interest.csv")
+```
+
+```{r, include=FALSE}
+school = st_read("Facilities/WGS84/schools.shp")
+```
+
+```{r, include=FALSE}
+parks = st_read("Facilities/WGS84/parks.shp")
+```
+
+```{r, include=FALSE}
+supermarket = st_read("Facilities/WGS84/supermarket.shp")
+```
+
+```{r, include=FALSE}
+hospital = st_read("Facilities/WGS84/hospitals.shp")
+```
+
+```{r}
+mode = c("WALK", "TRANSIT")
+max_walk_time = 30 # in minutes
+travel_time_cutoff = 30 # in minutes
+departure_datetime = as.POSIXct("12-04-2024 08:00:00", format = "%d-%m-%Y %H:%M:%S")
+time_window = 30 # in minutes
+percentiles = 50
+```
+
+```{r}
+access_school = accessibility(r5r_core,
+                        origins = st_set_geometry(hex_grid, hex_grid$centroid_geom),
+                        destinations = poi,
+                        mode = mode,
+                        opportunities_colnames = c("school"),
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+# Ensure IDs are in the correct format for matching
+access_school$id = as.character(access_school$id)
+```
+
+```{r}
+access_school = access_school %>%
+  rename(accessibility_school = accessibility)
+```
+
+```{r}
+# Join the data
+analysis_sf = left_join(analysis_sf, access_school, by = "id")
+```
+
+```{r}
+# Set the polygon geometry as active for visualization
+st_geometry(analysis_sf) = analysis_sf$geometry
+```
+
+```{r plot-preview-1, include=FALSE}
+# Assuming 'school_access_time' is the column from access_school data showing number of school accessible
+plot_1 = ggplot(data = analysis_sf) +
+  geom_sf(aes(fill = accessibility_school), color = NA) +  # Visualize school accessibility
+  geom_sf(data = school, color = "red", shape = 19, size = 0.2, show.legend = TRUE) +  # Add schools
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Number of School Accessible") +
+  labs(title = "Accessibility to Schools from Various Locations",
+       subtitle = "Schools are marked with red dots",
+       fill = "Number of Schools") +
+  theme_minimal()
+plot_1
+```
+
+```{r}
+# Save the plot
+# ggsave("Images/plot_1.png", plot = plot_1, width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+access_parks = accessibility(r5r_core,
+                        origins = st_set_geometry(hex_grid, hex_grid$centroid_geom),
+                        destinations = poi,
+                        mode = mode,
+                        opportunities_colnames = c("park"),
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+access_parks$id = as.character(access_parks$id)
+```
+
+```{r}
+# rename column
+access_parks = access_parks %>%
+  rename(accessibility_park = accessibility)
+```
+
+```{r}
+access_parks = access_parks %>%
+  rename(opportunity_park = opportunity)
+```
+
+```{r}
+# Select the columns in access_school
+park_selected = access_parks %>%
+  select(id, opportunity_park, accessibility_park)
+```
+
+```{r}
+# Join the data
+analysis_sf = left_join(analysis_sf, park_selected, by = "id")
+```
+
+```{r}
+# Set the polygon geometry as active for visualization
+st_geometry(analysis_sf) = analysis_sf$geometry
+```
+
+```{r plot-preview-2, include=FALSE}
+# plot
+plot_2 = ggplot(data = analysis_sf) +
+  geom_sf(aes(fill = accessibility_park), color = NA) +
+  geom_sf(data = parks, color = "green", shape = 19, size = 0.2, show.legend = TRUE) +
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Number of Parks Accessible") +
+  labs(title = "Accessibility to Parks from Various Locations",
+       fill = "Number of Parks") +
+  theme_minimal()
+plot_2
+```
+
+```{r}
+# Save the plot
+# ggsave("Images/plot_2.png", plot = plot_2, width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+access_supermarket = accessibility(r5r_core,
+                        origins = st_set_geometry(hex_grid, hex_grid$centroid_geom),
+                        destinations = poi,
+                        mode = mode,
+                        opportunities_colnames = c("supermarket"),
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+# Ensure IDs are in the correct format for matching
+access_supermarket$id = as.character(access_supermarket$id)
+```
+
+```{r}
+access_supermarket = access_supermarket %>%
+  rename(accessibility_supermarket = accessibility)
+```
+
+```{r}
+access_supermarket = access_supermarket %>%
+  rename(opportunity_supermarket = opportunity)
+```
+
+```{r}
+# Select and rename the columns 
+market_selected = access_supermarket %>%
+  select(id, opportunity_supermarket, accessibility_supermarket)
+```
+
+```{r}
+# Join the data
+analysis_sf = left_join(analysis_sf, market_selected, by = "id")
+```
+
+```{r}
+# Set the polygon geometry as active for visualization
+st_geometry(analysis_sf) = analysis_sf$geometry
+```
+
+```{r plot-preview-3, include=FALSE}
+# plot
+plot_3 = ggplot(data = analysis_sf) +
+  geom_sf(aes(fill = accessibility_supermarket), color = NA) +
+  geom_sf(data = supermarket, color = "blue", shape = 19, size = 0.2, show.legend = TRUE) +
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Number of Supermarket Accessible") +
+  labs(title = "Accessibility to Supermarket from Various Locations",
+       fill = "Number of Supermarket") +
+  theme_minimal()
+plot_3
+```
+
+```{r}
+# Save the plot
+# ggsave("Images/plot_3.png", plot = plot_3, width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+access_hospital = accessibility(r5r_core,
+                        origins = st_set_geometry(hex_grid, hex_grid$centroid_geom),
+                        destinations = poi,
+                        mode = "TRANSIT",
+                        opportunities_colnames = c("hospital"),
+                        decay_function = "step",
+                        cutoffs = c(10,20,30,40,50,60,70,80),
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+# Ensure IDs are in the correct format for matching
+access_hospital$id = as.character(access_hospital$id)
+```
+
+```{r}
+access_hospital = access_hospital %>%
+  rename(accessibility_hospital = accessibility)
+```
+
+```{r}
+access_hospital = access_hospital %>%
+  rename(opportunity_hospital = opportunity)
+```
+
+```{r}
+access_hospital = access_hospital %>%
+  rename(cutoff_hospital = cutoff)
+```
+
+```{r}
+# Select
+hospital_selected = access_hospital %>%
+  select(id, opportunity_hospital, accessibility_hospital, cutoff_hospital)
+```
+
+```{r}
+# Join the data
+analysis_sf = left_join(analysis_sf, hospital_selected, by = "id")
+```
+
+```{r}
+# Set the polygon geometry as active for visualization
+st_geometry(analysis_sf) = analysis_sf$geometry
+```
+
+```{r plot-preview-4, include=FALSE}
+# plot
+plot_4 = ggplot(data = analysis_sf) +
+  geom_sf(aes(fill = accessibility_hospital), color = NA) + 
+  geom_sf(data = hospital, color = "pink", shape = 19, size = 0.2, show.legend = TRUE) +
+  facet_wrap(~cutoff_hospital, labeller = label_both) +  # Facet by cutoff times
+  scale_fill_viridis_c(
+    name = "Number of Accessible Hospitals", 
+    option = "C", direction = -1
+  ) +
+  labs(
+    title = "Accessibility to Nearest Hospital by Cutoff Time",
+    subtitle = "Number of hospitals accessible within different travel times"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+plot_4
+```
+
+```{r}
+# Save the plot (e.g., school plot)
+# ggsave("Images/plot_4.png", plot = plot_4, width = 10, height = 8, dpi = 300)
+```
+
+```{r echo=FALSE, fig.show='hold', fig.width=6, fig.height=4, out.width='49%', fig.cap="Left: Accessibility to Schools. Right: Accessibility to Parks"}
+knitr::include_graphics("Images/plot_1.png")
+knitr::include_graphics("Images/plot_2.png")
+```
+
+```{r echo=FALSE, fig.show='hold', fig.width=6, fig.height=4, out.width='49%', fig.cap="Left: Accessibility to Supermarket. Right: Accessibility to Hospital"}
+knitr::include_graphics("Images/plot_3.png")
+knitr::include_graphics("Images/plot_4.png")
+```
+
+# Analysis
+
+## Overview of Hospital Access by Walk and Transit
+
+There is a noticeable difference in accessibility by transit and walk when looking at Leeds's hospital accessibility spatial distribution from population weighted centroids. Walking gives restricted access to hospitals, which are mostly located in Leeds's central sections. This suggests that outlying locations have considerable accessibility issues. Transit, on the other hand, expands access, covering a eastern portion of the city and emphasizing the influence of effective public transportation on healthcare accessibility. Still, there are large a number of places with poorer accessibility, particularly in the north suburbs. These places may have an impact on the elderly and other people with limited mobility who depend significantly on being close to medical facilities. This emphasizes the necessity of making targeted advancements in the distribution of healthcare facilities and the accessibility of public transit in order to provide equitable access throughout Leeds.
+
+```{r}
+mode = c("WALK")
+max_walk_time = 30 # in minutes
+travel_time_cutoff = 30 # in minutes
+departure_datetime = as.POSIXct("12-04-2024 08:00:00", format = "%d-%m-%Y %H:%M:%S")
+time_window = 30 # in minutes
+percentiles = 50
+```
+
+```{r}
+leeds_health_walk = accessibility(r5r_core,
+                        origins = centroids,
+                        destinations = poi,
+                        mode = mode,
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        opportunities_colnames = c("hospital"),
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+# If not, you should ensure that the 'centroids' data has LSOA codes before running the accessibility calculation
+leeds_health_walk$LSOA21CD <- centroids$LSOA21CD
+```
+
+```{r}
+# Perform the left join and select the 'accessibility' column
+leeds_analysis = leeds_analysis %>%
+  left_join(leeds_health_walk %>% select(LSOA21CD, accessibility), by = "LSOA21CD")
+```
+
+```{r}
+# Rename the 'accessibility' column to 'hosp_access'
+colnames(leeds_analysis)[colnames(leeds_analysis) == 'accessibility'] <- 'hosp_access_walk'
+```
+
+```{r}
+mode = c("TRANSIT")
+```
+
+```{r}
+leeds_health_transit = accessibility(r5r_core,
+                        origins = centroids,
+                        destinations = poi,
+                        mode = mode,
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        opportunities_colnames = c("hospital"),
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+# capture th lsoa code
+leeds_health_transit$LSOA21CD <- centroids$LSOA21CD
+```
+
+```{r}
+# Perform the left join and select the 'accessibility' column
+leeds_analysis = leeds_analysis %>%
+  left_join(leeds_health_transit %>% select(LSOA21CD, accessibility), by = "LSOA21CD")
+```
+
+```{r}
+# Rename the 'accessibility' column to 'hosp_access_tran'
+colnames(leeds_analysis)[colnames(leeds_analysis) == 'accessibility'] <- 'hosp_access_tran'
+```
+
+```{r combined-plots-2, fig.cap="Accessibility to hospital by walk and transit", fig.show='hold', out.width='50%'}
+# plot the map
+
+plot_5 = ggplot(data = leeds_analysis) +
+  geom_sf(aes(fill = hosp_access_walk), color = NA) +
+  geom_sf(data = hospital, color = "pink", shape = 19, size = 0.2, show.legend = TRUE) +
+  scale_fill_viridis_c(name = "Accessible Hospitals", 
+                       labels = scales::comma) +  # Add commas for better readability if needed
+  labs(title = "Hospital Accessibility from Centroids in Leeds",
+       subtitle = "Number of hospitals accessible within 30 minutes by walking",
+       fill = "Number of Hospitals") +
+  theme_minimal()
+print(plot_5)
+
+plot_6 = ggplot(data = leeds_analysis) +
+  geom_sf(aes(fill = hosp_access_tran), color = NA) +  
+  geom_sf(data = hospital, color = "pink", shape = 19, size = 0.2, show.legend = TRUE) +
+  scale_fill_viridis_c(name = "Accessible Hospitals", 
+                       labels = scales::comma) +  
+  labs(title = "Hospital Accessibility from Centroids in Leeds",
+       subtitle = "Number of hospitals accessible within 30 minutes by Transit",
+       fill = "Number of Hospitals") +
+  theme_minimal()
+print(plot_6)
+```
+
+```{r, fig.show='hide'}
+# Choropleth map for 'disability'
+ggplot(data = leeds_analysis) +
+  geom_sf(aes(fill = disability), color = "white", size = 0.1) +
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Disabled Population") +
+  labs(title = "Choropleth Map of Disabled Population in Leeds",
+       subtitle = "Distribution of disabled population across Leeds") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+```{r, fig.show='hide'}
+# Choropleth map for 'old_age'
+ggplot(data = leeds_analysis) +
+  geom_sf(aes(fill = old_age), color = "white", size = 0.1) +
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Old Age Population") +
+  labs(title = "Choropleth Map of Old Age Population in Leeds",
+       subtitle = "Distribution of old age population across Leeds") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+## Correlation Matrix
+
+Accessibility is negatively correlated with older age (old_age) and disability (disability), suggesting that these populations may have more difficulty accessing essential services like hospitals. This is important to take into account when making policy decisions since it emphasises the necessity of tailored transportation options to improve accessibility for disadvantaged groups. Employment with another mode of transport than driving their vehicle shows a positive correlation with both accessibility by walking and transit suggesting they give preference to public transport and they show a positive relation with low-income decile which means higher income group gives priority to public transport so it is a good idea to improve the transit frequencies for this residential groups. The adverse associations between children (No_children) and walking accessibility to hospitals are especially noteworthy. These relationships may be a result of Leeds's urban planning where it lacks pedestrian-friendly walkable paths, potentially suggesting that neighbourhoods with children are vulnerable with poor access to hospitals.
+
+```{r}
+# Calculate the correlation matrix
+correlation_data = leeds_analysis %>%
+  select(-geometry) %>%  
+  dplyr::select(hosp_access_walk, hosp_access_tran, Income.Dec, no_emp, 
+         emp_omt, Asian_black, old_age, disability, No_children) %>%
+  dplyr::select_if(is.numeric)
+```
+
+```{r}
+correlation_data$geometry <- NULL  # remove the 'geometry' column
+```
+
+```{r}
+# Calculate the correlation matrix from the preprocessed data
+correlation_matrix = cor(correlation_data, use = "complete.obs")
+```
+
+```{r}
+# Visualize the correlation matrix
+corrplot(correlation_matrix, method = "circle", type = "upper", tl.cex=0.6, number.cex=0.6)
+```
+
+
+```{r, include=FALSE}
+# Print the correlation matrix
+print(correlation_matrix)
+```
+
+## Geographic Weighted Regression: Impact of demographic factors on healthcare accessibility
+
+Show local diversity, while in some areas these individuals have more difficulty using public transport to go to hospitals, in others the effect is negligible or even beneficial. In coefficient map area with blue and purple area suggest that a higher proportion of old age individuals correlates with poorer accessibility to hospitals. Although relationships shown by gwr are neither strongly negative nor positive which leads to further analysis for inequality.
+
+```{r}
+# 1. Hospital Access by Walk
+```
+
+```{r}
+filtered_data = leeds_analysis %>%
+  dplyr::select(hosp_access_walk, Income.Dec, disability, old_age, Asian_black, No_children, geometry) %>%
+  na.omit()
+```
+
+```{r}
+# If the data is polygonal, extract centroids or representative points
+if(any(st_geometry_type(filtered_data) %in% c("POLYGON", "MULTIPOLYGON"))) {
+    # Extracting centroids as representative points
+    coords = st_coordinates(st_centroid(filtered_data))
+} else {
+    # For point geometries, just extract coordinates
+    coords = st_coordinates(filtered_data)
+}
+```
+
+```{r}
+# Remove the geometry column temporarily 
+non_spatial_data = st_drop_geometry(filtered_data)
+```
+
+```{r}
+# Check for complete cases in the non-spatial data
+complete_rows = complete.cases(non_spatial_data)
+```
+
+```{r}
+# only include complete cases
+filtered_complete_data = filtered_data[complete_rows, ]
+```
+
+```{r, include=FALSE}
+bw = gwr.sel(hosp_access_walk ~ `Income.Dec` + disability + old_age + Asian_black + No_children, data = filtered_complete_data, coords = coords)
+```
+
+```{r, include=FALSE}
+gwr_model = gwr(hosp_access_walk ~ `Income.Dec` + disability + old_age + Asian_black + No_children, data = filtered_complete_data, bandwidth = bw, coords = coords)
+```
+
+```{r, include=FALSE}
+# Model summary
+gwr_model
+```
+
+```{r, include=FALSE}
+# Extract coefficients from SDF
+coefficients = gwr_model$SDF@data
+
+# View the coefficients
+print(head(coefficients))
+```
+
+```{r}
+# Convert SpatialPointsDataFrame to sf object, if gwr_model$SDF exists and is correct
+if("SDF" %in% names(gwr_model) && class(gwr_model$SDF) == "SpatialPointsDataFrame") {
+    coefficients_sf = st_as_sf(gwr_model$SDF)
+} else {
+    print("SDF not available or not a SpatialPointsDataFrame.")
+}
+```
+
+```{r, fig.show='hide'}
+# Plotting coefficients for disability
+ggplot(coefficients_sf) +
+  geom_sf(aes(color = disability), size = 3) +  
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Coefficients for Disability",
+       subtitle = "Geographically Weighted Regression Output") +
+  theme_minimal()
+```
+
+```{r, fig.show='hide'}
+# Plotting coefficients for children
+ggplot(coefficients_sf) +
+  geom_sf(aes(color = No_children), size = 3) +  
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Coefficients for Number of Children",
+       subtitle = "Geographically Weighted Regression Output") +
+  theme_minimal()
+```
+
+```{r}
+# 2. Hospital Access by Transit
+```
+
+```{r}
+filtered_data_transit = leeds_analysis %>%
+  dplyr::select(hosp_access_tran, Income.Dec, disability, old_age, Asian_black, No_children, geometry) %>%
+  na.omit()
+```
+
+```{r}
+# If the data is polygonal, extract centroids or representative points
+if(any(st_geometry_type(filtered_data_transit) %in% c("POLYGON", "MULTIPOLYGON"))) {
+    # Extracting centroids as representative points
+    coords_transit = st_coordinates(st_centroid(filtered_data_transit))
+} else {
+    # For point geometries, just extract coordinates
+    coords_transit = st_coordinates(filtered_data_transit)
+}
+```
+
+```{r}
+# Remove the geometry column temporarily and check for complete cases
+non_spt_data = st_drop_geometry(filtered_data_transit)
+```
+
+```{r}
+# Check for complete cases in the non-spatial data
+comp_rows = complete.cases(non_spt_data)
+```
+
+```{r}
+# You can now filter your data frame to only include complete cases
+filtered_comp_data = filtered_data_transit[comp_rows, ]
+```
+
+```{r, include=FALSE}
+bw_tran = gwr.sel(hosp_access_tran ~ `Income.Dec` + disability + old_age + Asian_black + No_children , data = filtered_comp_data, coords = coords_transit)
+```
+
+```{r, include=FALSE}
+gwr_model_tran = gwr(hosp_access_tran ~ `Income.Dec` + disability + old_age + Asian_black + No_children, data = filtered_comp_data, bandwidth = bw, coords = coords_transit)
+```
+
+```{r, include=FALSE}
+# Model summary
+gwr_model_tran
+```
+
+```{r, include=FALSE}
+# Extract coefficients from SDF
+coefficients_tran = gwr_model_tran$SDF@data
+
+# View the coefficients
+print(head(coefficients_tran))
+```
+
+```{r}
+# Convert SpatialPointsDataFrame to sf object
+coefficients_sf_tran = st_as_sf(gwr_model_tran$SDF)
+```
+
+```{r, fig.show='hide'}
+# Plotting coefficients for Children
+ggplot(coefficients_sf_tran) +
+  geom_sf(aes(color = No_children), size = 3) +  
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Coefficients for Number of Children",
+       subtitle = "Geographically Weighted Regression Output") +
+  theme_minimal()
+```
+
+```{r, fig.show='hide'}
+# Plotting coefficients for old age people
+ggplot(coefficients_sf_tran) +
+  geom_sf(aes(color = old_age), size = 3) +  
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Coefficients for Old Age People",
+       subtitle = "Geographically Weighted Regression Output") +
+  theme_minimal()
+```
+
+```{r}
+# overview plot
+```
+
+```{r combined-plots-3, fig.cap="Accessibility to hospital by walk and transit", fig.show='hold', out.width='50%'}
+# Plot
+
+plot_7 = ggplot(coefficients_sf) +
+  geom_sf(aes(color = old_age), size = 3) +  
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Coefficients for Old Age People by Walk",
+       subtitle = "Geographically Weighted Regression Output") +
+  theme_minimal()
+print(plot_7)
+
+plot_8 = ggplot(coefficients_sf_tran) +
+  geom_sf(aes(color = disability), size = 3) +  
+  scale_color_viridis_c() +
+  labs(title = "Spatial Distribution of Coefficients for Disability by Transit",
+       subtitle = "Geographically Weighted Regression Output") +
+  theme_minimal()
+print(plot_8)
+```
+
+## Gini Coefficient: Inequality and Accessibility
+
+The Gini coefficients indicate a significant difference in hospital accessibility, especially while walking, which is indicative of a deep socioeconomic inequality. High Gini values, like 0.74 and 0.75 for the elderly and disabled, suggest that hospital access is substantially concentrated within a small subset of these people. This implies the most vulnerable populations are disproportionately disadvantaged, i.e., those who are unable to afford transportation or who are physically unable of travelling large distances.
+
+On the other hand, the transportation data's Gini ratings (0.63, 0.64, and 0.63, respectively) indicate marginally lower inequality. These results are visually reinforced by the Lorenz Curve, which shows a significant variation in healthcare accessibility depending on demographic and mobility characteristics. This discrepancy highlights the urgent need for urban planning methods that improve equitable access to healthcare facilities for people of all backgrounds.
+
+```{r}
+# 1. Inequality with access by walk
+```
+
+```{r, include=FALSE}
+# Summarizing hospital access by disablity
+access_by_disable = leeds_analysis %>%
+  group_by(disability) %>%
+  summarise(mean_access = mean(hosp_access_walk, na.rm = TRUE))
+```
+
+```{r, include=FALSE}
+# gini calculation
+gini_coefficient_dsb = Gini(access_by_disable$mean_access)
+```
+
+```{r, include=FALSE}
+# Print the Gini coefficient
+print(paste("Gini Coefficient:", gini_coefficient_dsb))
+```
+
+```{r, fig.show='hide'}
+# Plot the Lorenz curve
+lorenz_data_dsb = Lc(access_by_disable$mean_access)
+plot(lorenz_data_dsb, main = "Lorenz Curve for Hospital Access to Disable People", col = "red",
+     xlab = "Cumulative share of population", ylab = "Cumulative share of hospital access")
+abline(0, 1, lty = 2, col = "blue")  # Adds the line of equality
+```
+
+```{r, include=FALSE}
+# Summarizing hospital access by old people
+access_by_old = leeds_analysis %>%
+  group_by(old_age) %>%
+  summarise(mean_access = mean(hosp_access_walk, na.rm = TRUE))
+```
+
+```{r, include=FALSE}
+# Assuming 'hosp_access_w' or a similar variable from your GWR output as the access measure
+gini_coefficient = Gini(access_by_old$mean_access)
+```
+
+```{r, include=FALSE}
+# Print the Gini coefficient
+print(paste("Gini Coefficient:", gini_coefficient))
+```
+
+```{r, fig.cap="Hospital Access by Walk for Old Age"}
+# plot lorenz curve
+lorenz_old = Lc(access_by_old$mean_access)
+plot(lorenz_old, main = "Lorenz Curve for Hospital Access by Walk for Old Age", col = "red",
+     xlab = "Cumulative share of population", ylab = "Cumulative share of hospital access",
+     cex.axis=0.8, cex.lab=0.8, cex.main=0.5)
+abline(0, 1, lty = 2, col = "blue")  
+```
+
+```{r, include=FALSE}
+# Summarizing hospital access by children
+access_by_child = leeds_analysis %>%
+  group_by(No_children) %>%
+  summarise(mean_access = mean(hosp_access_walk, na.rm = TRUE))
+```
+
+```{r, include=FALSE}
+# Assuming 'hosp_access_w' or a similar variable from your GWR output as the access measure
+gini_coefficient_c = Gini(access_by_child$mean_access)
+```
+
+```{r, include=FALSE}
+# Print the Gini coefficient
+print(paste("Gini Coefficient:", gini_coefficient_c))
+```
+
+```{r, fig.show='hide'}
+# Plot the Lorenz curve
+lorenz_data_c = Lc(access_by_child$mean_access)
+plot(lorenz_data_c, main = "Lorenz Curve for Hospital Access for Children", col = "red",
+     xlab = "Cumulative share of population", ylab = "Cumulative share of hospital access")
+abline(0, 1, lty = 2, col = "blue")  # Adds the line of equality
+```
+
+```{r}
+# 2. Inequality with access by transit
+```
+
+```{r, include=FALSE}
+# Summarizing hospital access by disability
+access_by_disable_trans = leeds_analysis %>%
+  group_by(disability) %>%
+  summarise(mean_access = mean(hosp_access_tran, na.rm = TRUE))
+```
+
+```{r, include=FALSE}
+# gini analysis
+gini_coefficient_dsb_tr = Gini(access_by_disable_trans$mean_access)
+```
+
+```{r, include=FALSE}
+# Print the Gini coefficient
+print(paste("Gini Coefficient:", gini_coefficient_dsb_tr))
+```
+
+```{r, fig.show='hide'}
+# Plot the Lorenz curve
+lorenz_dsb = Lc(access_by_disable_trans$mean_access)
+plot(lorenz_dsb, main = "Lorenz Curve for Hospital Access by Transit to Disable People", col = "red",
+     xlab = "Cumulative share of population", ylab = "Cumulative share of hospital access")
+abline(0, 1, lty = 2, col = "blue")  
+```
+
+```{r, include=FALSE}
+# Summarizing hospital access by old age
+access_by_old_trans = leeds_analysis %>%
+  group_by(old_age) %>%
+  summarise(mean_access = mean(hosp_access_tran, na.rm = TRUE))
+```
+
+```{r, include=FALSE}
+# gini analysis
+gini_coefficient_old_tr = Gini(access_by_old_trans$mean_access)
+```
+
+```{r, include=FALSE}
+# Print the Gini coefficient
+print(paste("Gini Coefficient:", gini_coefficient_old_tr))
+```
+
+```{r, fig.show='hide'}
+# Plot the Lorenz curve
+lorenz_data_old = Lc(access_by_old_trans$mean_access)
+plot(lorenz_data_old, main = "Lorenz Curve for Hospital Access to Old People", col = "red",
+     xlab = "Cumulative share of population", ylab = "Cumulative share of hospital access")
+abline(0, 1, lty = 2, col = "blue")  # Adds the line of equality
+```
+
+```{r, include=FALSE}
+# Summarizing hospital access by number of children
+access_by_child_trans = leeds_analysis %>%
+  group_by(No_children) %>%
+  summarise(mean_access = mean(hosp_access_tran, na.rm = TRUE))
+```
+
+```{r, include=FALSE}
+# gini measure
+gini_coefficient_child_tr = Gini(access_by_child_trans$mean_access)
+```
+
+```{r,include=FALSE}
+# Print the Gini coefficient
+print(paste("Gini Coefficient:", gini_coefficient_child_tr))
+```
+
+```{r, fig.show='hide'}
+# Plot the Lorenz curve
+lorenz_data_ch = Lc(access_by_child_trans$mean_access)
+plot(lorenz_data_ch, main = "Lorenz Curve for Hospital Access to Children", col = "red",
+     xlab = "Cumulative share of population", ylab = "Cumulative share of hospital access")
+abline(0, 1, lty = 2, col = "blue")  # Adds the line of equality
+```
+
+# Getis-Ord Gi* statistic: Hot Spot and Cold Spot
+
+The Getis-Ord Gi* statistic shows central parts of Leeds have significantly higher (hotspots) and outskirt has lower (coldspots) transit hospital access than the norm. These findings point to suburb areas where healthcare access disparities are concentrated, enabling trageted actions. Hotspots represent areas with comparatively superior access, which may be bolstered by a strong infrastructure and close proximity to medical facilities. On the other hand, coldspots places with very limited access indicate areas that can benefit from more focused in urban development, such as enhanced transit frequencies or expanded medical facilities. Recognising these trends aids in identifying regions that should receive policy attention in order to improve equitable access to healthcare throughout Leeds.
+
+```{r}
+# for Compute Getis-Ord Gi* stats
+accessibility_scores = leeds_analysis$hosp_access_tran
+```
+
+```{r}
+# Ensure CRS alignment
+if (st_crs(centroids) != st_crs(leeds_analysis)) {
+  centroids <- st_transform(centroids, st_crs(leeds_analysis))
+}
+```
+
+```{r}
+# centroids is population-weighted centroid sf object
+coords_pw = st_coordinates(st_geometry(centroids))
+```
+
+```{r}
+# Define neighbors based on nearest N neighbors
+nb = knn2nb(knearneigh(coords_pw, k=3), sym=TRUE)
+```
+
+```{r, fig.show='hide'}
+# plot to visualize the neighborhood connections
+plot(st_geometry(leeds_analysis), main = "Neighborhood Connections")
+plot(nb, coords_pw, add = TRUE, col = "red")
+```
+
+```{r}
+# assign weight
+lw = nb2listw(nb, style="W")
+```
+
+```{r}
+# Compute Getis-Ord Gi* statistic for walking accessibility
+gi_stats_walk = localG(accessibility_scores, lw, zero.policy=TRUE)
+```
+
+```{r}
+# Create a data frame from the spatial data
+leeds_analysis_df = st_as_sf(leeds_analysis)
+
+# Define the colors for plotting based on the Gi* statistic
+leeds_analysis_df$color = ifelse(gi_stats_walk > quantile(gi_stats_walk, 0.95), "Hotspot", 
+                                  ifelse(gi_stats_walk < quantile(gi_stats_walk, 0.05), "Coldspot", "Not Significant"))
+```
+
+```{r}
+# Plot using ggplot
+ggplot(data = leeds_analysis_df) +
+  geom_sf(aes(fill = color), color = NA) +
+  scale_fill_manual(values = c("Hotspot" = "red", "Coldspot" = "blue", "Not Significant" = "gray")) +
+  labs(title = "Hotspot and Coldspot Analysis",
+       subtitle = "Spatial distribution of hotspots and coldspots for transit accessibility",
+       fill = "Area Type") +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.title.align = 0.5)
+```
+
+## Case Study: Optimising Bus Frequency
+
+The main objective of this extensive case study was to improve hospital accessibility in Leeds by the modification of bus service frequency, with a specific focus on regions with a greater density of senior citizens.
+
+Methodology: Analysing and checked the bus frequency for a particular stop and route in an specific LSOA known for its high elderly population and limited hospital access within a 30-minute travel window by public transport. Files were extracted from the GTFS dataset for Leeds and connected to one another based on their shared IDs. In an effort to cut down on total journey time, bus timetables were modified to shorten the time between bus arrivals at selected bus stop. Plot the results after using the accessibility function with the altered GTFS data.
+
+Findings: Although the changes to the bus frequencies did not immediately increase hospital access in the target LSOA, they did greatly improve access in other LSOAs which are adjacent to it and were previously not as accessible. This result serves as an example of the possible unintended advantages of targeted transport initiatives.
+
+Implications: The need of modified public transport planning for enhancing healthcare accessibility is shown by this study. Areas gain indirectly from bus frequency optimisation, demonstrating a cascading impact that improves public health infrastructure accessibility. These observations highlight the requirement of strategic mobility planning in line with public health objectives, which is crucial for urban planners and policymakers hoping to lessen healthcare access inequities. This methodology not only facilitates optimal distribution of resources but also guarantees enhanced accessibility to vital services for vulnerable groups, including the elderly.
+
+```{r}
+# Subset for the specific LSOA and examine its characteristics
+selected_lsoa = leeds_analysis %>%
+  filter(LSOA21CD == "E01011643") %>%
+  select(old_age, hosp_access_tran, everything())
+```
+
+```{r, include=FALSE}
+leeds_gtfs = read_gtfs("r5r/itm_yorkshire_gtfs.zip")
+```
+
+```{r}
+# Load all the related file
+stops = leeds_gtfs$stops
+routes = leeds_gtfs$routes
+stop_times = leeds_gtfs$stop_times
+trips = leeds_gtfs$trips
+shapes = leeds_gtfs$shapes
+```
+
+```{r}
+shapes_sf = st_as_sf(shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326)
+shapes_sf = st_transform(shapes_sf, crs = st_crs(leeds_sf))
+```
+
+```{r}
+# Convert stops to an sf object with initial CRS as WGS84
+stops_sf = st_as_sf(stops, coords = c("stop_lon", "stop_lat"), crs = 4326) # EPSG:4326 is WGS84
+
+# Transform the coordinates from WGS84 to British National Grid (EPSG:27700)
+stops_sf = st_transform(stops_sf, crs = st_crs(leeds_sf))
+```
+
+```{r}
+# bus frequency
+```
+
+```{r}
+# Join stop_times with trips to get route information for each stop time
+stop_route_info = stop_times %>%
+  inner_join(trips, by = "trip_id") %>%
+  inner_join(routes, by = "route_id")
+```
+
+```{r}
+# Filter the specific LSOA
+specific_lsoa = leeds_sf[leeds_sf$LSOA21CD == "E01011643", ]
+```
+
+```{r}
+# This returns stops that intersect with the LSOA geometry
+stops_in_lsoa = stops_sf[st_intersects(stops_sf, specific_lsoa, sparse = FALSE)[,1], ]
+```
+
+```{r}
+# Calculate the frequency of buses at each stop within the LSOA
+bus_frequencies <- stop_route_info %>%
+  filter(stop_id %in% stops_in_lsoa$stop_id) %>%
+  count(route_id, stop_id, name = "frequency")
+```
+
+```{r, include=FALSE}
+# View bus frequencies
+print(bus_frequencies)
+```
+
+```{r}
+# Filter stop_time for the specific route_id first
+filtered_st = stop_times %>%
+  filter(stop_id == "450010240")
+```
+
+```{r}
+# Filter trips for the specific route_id first
+filter_t = filtered_st %>%
+  inner_join(trips, by = "trip_id")
+```
+
+```{r}
+# Join with shapes to get the geographical path of these trips
+trip_shapes = filter_t %>%
+  inner_join(shapes, by = "shape_id")
+```
+
+```{r}
+# Create an sf object from the joined data
+specific_route_shapes = st_as_sf(trip_shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326) %>%
+  st_transform(crs = st_crs(leeds_sf))
+```
+
+```{r}
+# Ensure that the data is ordered by shape sequence
+specific_route_shapes = specific_route_shapes %>%
+  arrange(shape_id, shape_pt_sequence) %>%
+  group_by(shape_id) %>%   # Ensure grouping by each shape_id
+  summarize(geometry = st_combine(geometry)) %>%
+  st_cast("LINESTRING")
+```
+
+```{r, include=FALSE}
+# Define the latitude and longitude for the center of the map
+latitude = 53.8008  
+longitude = -1.5535  
+zoom_level = 11 
+```
+
+```{r, fig.cap="Selected Bus Route in Leeds"}
+# Map creation
+
+tm_shape(leeds_sf) +
+  tm_polygons(alpha = 0.2) +
+  tm_basemap(server = "OpenStreetMap") +
+  tm_view(set.view = c(longitude, latitude, zoom_level), set.zoom.limits = c(11, 20)) +
+  tm_shape(specific_lsoa) +
+  tm_polygons(col = "red", lwd = 2, title.col = "POI LSOA") +
+  tm_shape(specific_route_shapes) +
+  tm_lines(col = "blue", lwd = 2, title.col = "Bus Route") +
+  tm_shape(hospital) +
+  tm_symbols(col = "green", size = 0.1, shape = 19, title.col = "Hospitals") +
+  tm_shape(stops_in_lsoa) +
+  tm_symbols(col = "yellow", size = 0.1, shape = 19, title.col = "Bus Stop") +
+  tm_layout(
+    title = "LSOA in Red and Stops in Yellow",
+  )
+```
+
+```{r}
+# Assuming 'stops_in_route' is a subset of 'stops_sf' that includes only those stops belonging to route '450010240'
+# stops_in_route = stops_sf[stops_sf$stop_id == "450010240", ]
+```
+
+```{r}
+# Modifying GTFS data with changing bus frequency 
+```
+
+```{r, include=FALSE}
+modified_gtfs = read_gtfs("r5r/itm_yorkshire_gtfs.zip")
+```
+
+```{r}
+stop_times_m = modified_gtfs$stop_times
+trips_m = modified_gtfs$trips
+```
+
+```{r}
+# Convert times from character to POSIXct (assuming they are in %H:%M:%S format)
+stop_times_m$arrival_time = strptime(stop_times_m$arrival_time, format = "%H:%M:%S")
+stop_times_m$departure_time = strptime(stop_times_m$departure_time, format = "%H:%M:%S")
+```
+
+```{r}
+# Filter and sort stop times for the specific stop
+stop_times_filtered = stop_times_m %>%
+  filter(stop_id == "450010240") %>%
+  arrange(arrival_time)
+```
+
+```{r}
+# Calculate gaps and generate additional trips
+stop_times_adjusted = stop_times_filtered %>%
+  mutate(
+    next_arrival_time = lead(arrival_time),
+    gap = as.numeric(difftime(next_arrival_time, arrival_time, units = "mins"))
+  ) %>%
+  filter(gap > 10) %>%
+  rowwise() %>%
+  mutate(
+    num_trips_to_add = floor(gap / 10) - 1,
+    list_of_new_times = list(seq(from = arrival_time + minutes(10), length.out = num_trips_to_add, by = "10 mins"))
+  ) %>%
+  unnest(list_of_new_times) %>%
+  mutate(
+    trip_id = paste(trip_id, row_number(), "new", sep = "_"),
+    arrival_time = list_of_new_times,
+    departure_time = list_of_new_times
+  ) %>%
+  select(-gap, -next_arrival_time, -num_trips_to_add)
+```
+
+```{r}
+# Combine original and new trips
+all_stop_times = bind_rows(stop_times_filtered, stop_times_adjusted)
+```
+
+```{r}
+# Assume new trips have a 'new' suffix in their trip_id
+new_trips = trips_m %>%
+  inner_join(select(stop_times_adjusted, trip_id), by = "trip_id") %>%
+  mutate(trip_id = paste(trip_id, "new", sep = "_"))
+```
+
+```{r}
+all_trips = bind_rows(trips_m, new_trips)
+```
+
+```{r}
+# write.csv(all_stop_times, "stop_times.txt", row.names = FALSE, quote = FALSE, sep = ",")
+# write.csv(all_trips, "trips.txt", row.names = FALSE, quote = FALSE, sep = ",")
+```
+
+```{r}
+# Comapre original and new timetable
+```
+
+```{r, include=FALSE}
+original_times = stop_times%>%
+  filter(stop_id == "450010240") %>%
+  select(trip_id, arrival_time, departure_time)
+
+# Optionally, print a few original times
+print(head(original_times))
+```
+
+```{r, include=FALSE}
+# View the first few entries of the modified times for validation
+modified_times = all_stop_times %>%
+  filter(stop_id == "450010240", grepl("new$", trip_id)) %>%
+  select(trip_id, arrival_time, departure_time)
+
+# Print a few modified times
+print(head(modified_times))
+```
+
+```{r}
+# Running Accessibility with Modified GTFS Data
+```
+
+```{r, include=FALSE}
+# Initiate the R5 core
+r5r = setup_r5(data_path = "/Users/aseemshaikh/Documents/UDSA/Semester 2/TRAN5340M Transport Data Science/Assignment/Test", verbose = FALSE)
+```
+
+```{r}
+# transform centroied 
+centroids = st_transform(centroids, crs = 4326)
+```
+
+```{r}
+mode = c("TRANSIT")
+max_walk_time = 30 # in minutes
+travel_time_cutoff = 30 # in minutes
+departure_datetime = as.POSIXct("2024-05-20 06:00:00")
+time_window = 30 # in minutes
+percentiles = 50
+```
+
+```{r}
+leeds_transit = accessibility(r5r_core,
+                        origins = centroids,
+                        destinations = poi,
+                        mode = mode,
+                        decay_function = "step",
+                        cutoffs = travel_time_cutoff,
+                        opportunities_colnames = c("hospital"),
+                        departure_datetime = departure_datetime,
+                        max_walk_time = max_walk_time,
+                        time_window = time_window,
+                        percentiles = percentiles,
+                        progress = TRUE)
+```
+
+```{r}
+leeds_transit$LSOA21CD <- centroids$LSOA21CD
+```
+
+```{r}
+# Perform the left join and select the 'accessibility' column
+leeds_analysis = leeds_analysis %>%
+  left_join(leeds_transit %>% select(LSOA21CD, accessibility), by = "LSOA21CD")
+```
+
+```{r}
+# Rename the 'accessibility' column to 'hosp_access'
+colnames(leeds_analysis)[colnames(leeds_analysis) == 'accessibility'] <- 'hosp_tran_new'
+```
+
+```{r combined-plots-4, fig.cap="Comaprison between original and Modified(right) hospital access by transit", fig.show='hold', out.width='50%'}
+# Comaprison
+
+plot_7 = ggplot(data = leeds_analysis) +
+  geom_sf(aes(fill = hosp_access_tran), color = NA) +  
+  geom_sf(data = hospital, color = "red", shape = 19, size = 0.2, show.legend = TRUE) +
+  scale_fill_viridis_c(name = "Accessible Hospitals", 
+                       labels = scales::comma) +  
+  labs(title = "Hospital Accessibility from Centroids in Leeds",
+       subtitle = "Number of hospitals accessible within 30 minutes by Transit",
+       fill = "Number of Hospitals") +
+  theme_minimal()
+print(plot_7)
+
+plot_8 = ggplot(data = leeds_analysis) +
+  geom_sf(aes(fill = hosp_tran_new), color = NA) +  # Assume hosp_tran_a is correct
+  geom_sf(data = specific_lsoa, fill = "orange") +
+  geom_sf(data = hospital, color = "red", shape = 19, size = 1, show.legend = TRUE) +
+  scale_fill_viridis_c(name = "Accessible Hospitals", 
+                       labels = scales::comma) +  # Optional: use labels for better readability
+  labs(title = "Hospital Accessibility from Centroids in Leeds After Modification",
+       subtitle = "Targeted LSOA in Orange Color",
+       fill = "Number of Hospitals") +
+  theme_minimal()
+print(plot_8)
+```
+
+```{r}
+# Assuming leeds_analysis is an sf object
+leeds_analysis = leeds_analysis %>%
+  mutate(improved_access = ifelse(hosp_access_tran == 0 & hosp_tran_new > 0, 1, 0))
+```
+
+```{r, fig.show='hide'}
+# Set the options to view the map
+tmap_mode("view")
+
+tm_shape(leeds_analysis) +
+  tm_polygons("improved_access", palette = c("grey", "red"), 
+              border.col = "black", id = "LSOA21CD") +
+  tm_shape(specific_lsoa) +
+  tm_borders(col = "blue", lwd = 2, alpha = 0.5) +
+  tm_shape(specific_route_shapes) +
+  tm_lines(col = "blue", lwd = 2) +
+  tm_layout(main.title = "Impact of Modified GTFS on Hospital Accessibility",
+            main.title.position = "center")
+```
+
+# Discussion
+
+This study analyses the accessibility of urban healthcare via public transport in Leeds using a variety of detailed data sources, such as OSM network data, GTFS data, and socioeconomic variables from the UK Census. Notable strengths include the utilisation of the r5r software for in-depth accessibility analysis, Gini coefficient for estimating inequality and Getis-Ord Gi* statistics to investigate geographical variances. This method enables a more detailed understanding of the ways in which poor people' access to healthcare is impacted by transport accessibility. Furthermore, the transformation of GTFS data to model increased bus service frequency offers useful perspectives on how transit changes could improve healthcare accessibility.
+
+The accuracy of the project may be impacted by the fact that the key data sources, in particular the GTFS data, might not always be updated. This could lead to doubts regarding the real availability and timetables of transit choices. Further restrictions include the r5r package's high processing requirements and the dependence on OSM data, which is not always reliable or complete. The study may not have captured changing daily or seasonal transit conditions due to its assumptions regarding bus frequency and the constant parameters utilised in accessibility analysis. Furthermore, concentrating just on particular demographic characteristics while ignoring more general health-related problems may limit our comprehension of other significant accessibility implications.
+
+Furthermore, using advanced models based on machine learning instead of the static ones utilised in this study may be able to predict changes in healthcare accessibility and transit usage more dynamically, allowing for better adaptation to either brief disruptions or long-term changes in transport networks.Using real-time transit data, which shows actual bus frequencies and timings rather than those that are scheduled, is an additional option. Real-time data acquisition and processing, however, can be far more difficult and resource-intensive.
+
+
+# Policy Suggestions
+
+Based on the results and analyses of this study, several policy suggestions emerge that may improve healthcare accessibility through public transport in Leeds:
+
+**Targeted Improvement of Transit Services**: Prioritise public transport service upgrades in underserved regions that have been identified as coldspots for low accessibility based on the Getis-Ord Gi* analysis. This may involve adding new routes that link these communities directly to important healthcare facilities or increasing bus frequencies, particularly during times when healthcare access is at its highest.
+
+**Expand Multi-modal Transport Options**: Provide and encourage multi-modal transportation options that include public transportation, cycling, and walking. This might involve making it safer and easier for locals to get healthcare services without a car by enhancing bike lanes and pedestrian pathways that connect to important bus lines or medical facilities.
+
+**Enhance Transit Data Transparency and Regularity**: Encourage regional transit authorities and organizations to keep up-to-date GTFS information. This reduces differences between reported and actual transit availability by ensuring the data reflects current transit schedules and routes. Furthermore, setting up public portals with real-time transit updates can help citizens and decision-makers make informed choices. 
+
+# Conclusion
+
+The study clearly shows a connection between Leeds residents' ability to access healthcare and public transit, highlighting notable inequalities that impact the city's youth, elderly, and disabled populations. The study highlights current disparities and illustrates how targeted transport policies may improve healthcare accessibility by altering bus frequencies and assessing transit accessibility using sophisticated spatial data tools. The realisation of these insights necessitates the development of integrated urban and transportation planning strategies that give equal access to healthcare top priority, thereby improving the general well-being of urban communities.
+
+
+# References
+
+Pereira, R.H., Saraiva, M., Herszenhut, D., Braga, C.K.V. and Conway, M.W., 2021. r5r: rapid realistic routing on multimodal transport networks with r 5 in r. Findings.
+
+Pereira, R.H. and Herszenhut, D., 2023. Introduction to urban accessibility: a practical guide with R.
+
+Zhao, P., Li, S. and Liu, D., 2020. Unequable spatial accessibility to hospitals in developing megacities: New evidence from Beijing. Health & Place, 65, p.102406.
+
+Cheng, L., Yang, M., De Vos, J. and Witlox, F., 2020. Examining geographical accessibility to multi-tier hospital care services for the elderly: A focus on spatial equity. Journal of Transport & Health, 19, p.100926.
+
+Acheampong, R.A. and Asabere, S.B., 2022. Urban expansion and differential accessibility by car and public transport in the Greater Kumasi city-region, Ghana—A geospatial modelling approach. Journal of Transport Geography, 98, p.103257.
+
+Lee, S., 2022, October. Spatial and socioeconomic inequalities in accessibility to healthcare services in South Korea. In Healthcare (Vol. 10, No. 10, p. 2049). MDPI.
+
+Reshadat, S., Zangeneh, A., Saeidi, S., Teimouri, R. and Yigitcanlar, T., 2019. Measures of spatial accessibility to health centers: investigating urban and rural disparities in Kermanshah, Iran. Journal of Public Health, 27, pp.519-529.
+
+Verduzco Torres, J.R. and McArthur, D.P., 2024. Public transport accessibility indicators to urban and regional services in Great Britain. Scientific Data, 11(1), p.53.
+
+Arbex, R. and Cunha, C.B., 2020. Estimating the influence of crowding and travel time variability on accessibility to jobs in a large public transport network using smart card big data. Journal of Transport Geography, 85, p.102671.
+
+Brodsky, I., 2018. H3: Uber’s hexagonal hierarchical spatial index. Available from Uber Engineering website: https://eng. uber. com/h3/[22 June 2019], p.30.
+
+
