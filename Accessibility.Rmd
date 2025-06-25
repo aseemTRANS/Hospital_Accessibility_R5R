@@ -147,7 +147,7 @@ library(rJava)
 ```
 
 ```{r}
-## Please note down all the process related to creating dataset for R5R package and OSM data is commented out and generated data is directly used for analysis. Hex grid data and uk census data is generated in python file.
+## Please Note: All the process related to creating dataset for R5R package and OSM data is commented out and generated data is directly used for analysis. Hex grid data and uk census data is generated in python file.
 ```
 
 ```{r}
